@@ -1,5 +1,7 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification } = require('electron')
+const { autoUpdater } = require('electron-updater')
 const path = require('path')
+const fs = require('fs')
 const Store = require('electron-store')
 const { PythonBridge } = require('./python-bridge')
 
@@ -26,10 +28,64 @@ let tray = null
 let pythonBridge = null
 let syncInterval = null
 
-const isDev = process.env.NODE_ENV !== 'production' || !app.isPackaged
+// Use app.isPackaged as the primary check - it's reliable in Electron
+const isDev = !app.isPackaged
+
+function getIconPath() {
+  // Try multiple icon formats in order of preference
+  const iconNames = process.platform === 'win32'
+    ? ['icon.ico', 'icon.png', 'icon.svg']
+    : ['icon.png', 'icon.icns', 'icon.svg']
+
+  const resourcesDir = isDev
+    ? path.join(__dirname, '../resources')
+    : path.join(process.resourcesPath, 'resources')
+
+  for (const iconName of iconNames) {
+    const iconPath = path.join(resourcesDir, iconName)
+    if (fs.existsSync(iconPath)) {
+      return iconPath
+    }
+  }
+
+  // Fallback to resources in app directory
+  const fallbackDir = path.join(__dirname, '../resources')
+  for (const iconName of iconNames) {
+    const iconPath = path.join(fallbackDir, iconName)
+    if (fs.existsSync(iconPath)) {
+      return iconPath
+    }
+  }
+
+  return null
+}
+
+function getIndexPath() {
+  if (isDev) {
+    return null // Will use URL instead
+  }
+
+  // In production, check multiple possible locations
+  const possiblePaths = [
+    path.join(__dirname, '../dist/index.html'),
+    path.join(process.resourcesPath, 'app/dist/index.html'),
+    path.join(app.getAppPath(), 'dist/index.html')
+  ]
+
+  for (const filePath of possiblePaths) {
+    if (fs.existsSync(filePath)) {
+      return filePath
+    }
+  }
+
+  console.error('Could not find index.html in any of:', possiblePaths)
+  return possiblePaths[0] // Return first path for error message
+}
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const iconPath = getIconPath()
+
+  const windowOptions = {
     width: 1200,
     height: 800,
     minWidth: 900,
@@ -39,18 +95,46 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true
     },
-    icon: path.join(__dirname, '../resources/icon.png'),
     show: false,
-    titleBarStyle: 'hiddenInset',
     backgroundColor: '#f8fafc'
-  })
+  }
+
+  // Only set icon if it exists
+  if (iconPath) {
+    windowOptions.icon = iconPath
+  }
+
+  // titleBarStyle is macOS specific
+  if (process.platform === 'darwin') {
+    windowOptions.titleBarStyle = 'hiddenInset'
+  }
+
+  mainWindow = new BrowserWindow(windowOptions)
 
   // Load the app
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    const indexPath = getIndexPath()
+
+    mainWindow.loadFile(indexPath).catch((err) => {
+      console.error('Failed to load index.html:', err)
+      // Show error page
+      mainWindow.loadURL(`data:text/html,
+        <html>
+          <head><title>Error</title></head>
+          <body style="font-family: system-ui; padding: 40px; background: #f8fafc;">
+            <h1 style="color: #ef4444;">Failed to load application</h1>
+            <p>Could not find: ${indexPath}</p>
+            <p>Error: ${err.message}</p>
+            <p style="color: #6b7280; margin-top: 20px;">
+              Please reinstall the application or contact support.
+            </p>
+          </body>
+        </html>
+      `)
+    })
   }
 
   mainWindow.once('ready-to-show', () => {
@@ -66,8 +150,22 @@ function createWindow() {
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, '../resources/icon.png')
-  const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
+  const iconPath = getIconPath()
+
+  // Create tray icon - handle missing icon gracefully
+  let icon
+  if (iconPath && fs.existsSync(iconPath)) {
+    icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
+  } else {
+    // Create a simple colored icon as fallback
+    icon = nativeImage.createEmpty()
+  }
+
+  // Skip tray creation if no valid icon on Windows
+  if (icon.isEmpty() && process.platform === 'win32') {
+    console.warn('Skipping tray creation: no valid icon found')
+    return
+  }
 
   tray = new Tray(icon)
 
@@ -95,9 +193,23 @@ async function initializePythonBridge() {
   try {
     await pythonBridge.initialize()
     console.log('Python bridge initialized successfully')
+    // Notify renderer that Python is ready
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('python:ready')
+    }
   } catch (error) {
     console.error('Failed to initialize Python bridge:', error)
-    showNotification('Error', 'Failed to initialize Python backend')
+    showNotification('Error', `Failed to initialize Python: ${error.message}`)
+
+    // Send error to renderer so it can show in UI
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('python:error', {
+        message: error.message,
+        details: process.platform === 'win32'
+          ? 'Please ensure Python 3.9+ is installed from python.org and added to PATH. Then run: pip install pyzk requests openpyxl reportlab schedule'
+          : 'Please ensure Python 3 is installed. Run: pip3 install pyzk requests openpyxl reportlab schedule'
+      })
+    }
   }
 }
 
@@ -223,12 +335,90 @@ function setupIpcHandlers() {
   })
 }
 
+// Auto-updater setup
+function setupAutoUpdater() {
+  // Don't check for updates in development
+  if (isDev) return
+
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () => {
+    console.log('Checking for updates...')
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('Update available:', info.version)
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('update:available', info)
+    }
+    showNotification('Update Available', `Version ${info.version} is available. Click to download.`)
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    console.log('No updates available')
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('update:progress', progress)
+    }
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('Update downloaded')
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('update:downloaded', info)
+    }
+    showNotification('Update Ready', 'Restart the app to install the update.')
+  })
+
+  autoUpdater.on('error', (error) => {
+    console.error('Auto-updater error:', error)
+  })
+
+  // Check for updates after a short delay
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(err => {
+      console.log('Update check failed:', err.message)
+    })
+  }, 5000)
+}
+
+// IPC handlers for updates
+function setupUpdateHandlers() {
+  ipcMain.handle('update:check', async () => {
+    if (isDev) return { updateAvailable: false }
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      return { updateAvailable: !!result.updateInfo }
+    } catch (error) {
+      return { error: error.message }
+    }
+  })
+
+  ipcMain.handle('update:download', async () => {
+    try {
+      await autoUpdater.downloadUpdate()
+      return { success: true }
+    } catch (error) {
+      return { error: error.message }
+    }
+  })
+
+  ipcMain.handle('update:install', () => {
+    autoUpdater.quitAndInstall(false, true)
+  })
+}
+
 // App lifecycle
 app.whenReady().then(async () => {
   createWindow()
   createTray()
   setupIpcHandlers()
+  setupUpdateHandlers()
   await initializePythonBridge()
+  setupAutoUpdater()
 
   // Start auto sync if enabled
   if (store.get('autoStart', false)) {

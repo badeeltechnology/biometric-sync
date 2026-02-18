@@ -36,6 +36,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportToExcel: (params) => ipcRenderer.invoke('export:excel', params),
   exportToPDF: (params) => ipcRenderer.invoke('export:pdf', params),
 
+  // Updates
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+
   // Event listeners
   onSyncStarted: (callback) => {
     ipcRenderer.on('sync:started', callback)
@@ -52,5 +57,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSyncProgress: (callback) => {
     ipcRenderer.on('sync:progress', (event, data) => callback(data))
     return () => ipcRenderer.removeListener('sync:progress', callback)
+  },
+
+  // Python status
+  onPythonReady: (callback) => {
+    ipcRenderer.on('python:ready', callback)
+    return () => ipcRenderer.removeListener('python:ready', callback)
+  },
+  onPythonError: (callback) => {
+    ipcRenderer.on('python:error', (event, error) => callback(error))
+    return () => ipcRenderer.removeListener('python:error', callback)
+  },
+
+  // Update events
+  onUpdateAvailable: (callback) => {
+    ipcRenderer.on('update:available', (event, info) => callback(info))
+    return () => ipcRenderer.removeListener('update:available', callback)
+  },
+  onUpdateProgress: (callback) => {
+    ipcRenderer.on('update:progress', (event, progress) => callback(progress))
+    return () => ipcRenderer.removeListener('update:progress', callback)
+  },
+  onUpdateDownloaded: (callback) => {
+    ipcRenderer.on('update:downloaded', (event, info) => callback(info))
+    return () => ipcRenderer.removeListener('update:downloaded', callback)
   }
 })
