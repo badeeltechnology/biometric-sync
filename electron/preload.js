@@ -59,7 +59,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('sync:progress', callback)
   },
 
+  // Shell
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+
   // Python status
+  retryPython: () => ipcRenderer.invoke('python:retry'),
   onPythonReady: (callback) => {
     ipcRenderer.on('python:ready', callback)
     return () => ipcRenderer.removeListener('python:ready', callback)

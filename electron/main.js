@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification } = require('electron')
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shell } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const path = require('path')
 const fs = require('fs')
@@ -199,15 +199,31 @@ async function initializePythonBridge() {
     }
   } catch (error) {
     console.error('Failed to initialize Python bridge:', error)
-    showNotification('Error', `Failed to initialize Python: ${error.message}`)
+
+    const isPythonMissing = error.message.includes('Python 3 not found') ||
+                            error.message.includes('not found') ||
+                            error.message.includes('ENOENT')
 
     // Send error to renderer so it can show in UI
     if (mainWindow && mainWindow.webContents) {
       mainWindow.webContents.send('python:error', {
         message: error.message,
-        details: process.platform === 'win32'
-          ? 'Please ensure Python 3.9+ is installed from python.org and added to PATH. Then run: pip install pyzk requests openpyxl reportlab schedule'
-          : 'Please ensure Python 3 is installed. Run: pip3 install pyzk requests openpyxl reportlab schedule'
+        isPythonMissing,
+        downloadUrl: 'https://www.python.org/downloads/',
+        instructions: process.platform === 'win32'
+          ? [
+              '1. Download Python 3.11 from python.org/downloads',
+              '2. Run the installer',
+              '3. IMPORTANT: Check "Add Python to PATH" during installation',
+              '4. Restart this application',
+              '5. If still not working, open Command Prompt and run:',
+              '   pip install pyzk requests openpyxl reportlab schedule'
+            ]
+          : [
+              '1. Install Python 3: brew install python3',
+              '2. Install dependencies: pip3 install pyzk requests openpyxl reportlab schedule',
+              '3. Restart this application'
+            ]
       })
     }
   }
@@ -387,6 +403,17 @@ function setupAutoUpdater() {
 
 // IPC handlers for updates
 function setupUpdateHandlers() {
+  // Open external URL in default browser
+  ipcMain.handle('shell:openExternal', async (event, url) => {
+    await shell.openExternal(url)
+  })
+
+  // Retry Python initialization
+  ipcMain.handle('python:retry', async () => {
+    await initializePythonBridge()
+    return pythonBridge?.isInitialized || false
+  })
+
   ipcMain.handle('update:check', async () => {
     if (isDev) return { updateAvailable: false }
     try {

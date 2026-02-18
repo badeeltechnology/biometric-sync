@@ -10,12 +10,10 @@
     "build": "vite build",
     "postinstall": "node scripts/generate-icons.js",
     "generate-icons": "node scripts/generate-icons.js",
-    "bundle-python": "node scripts/bundle-python-win.js",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run generate-icons && vite build && electron-builder",
     "electron:build:mac": "npm run generate-icons && vite build && electron-builder --mac",
-    "electron:build:win": "npm run generate-icons && vite build && electron-builder --win",
-    "electron:build:win:bundled": "npm run generate-icons && vite build && electron-builder --win --config.extraResources.2.from=python-bundle-win/python --config.extraResources.2.to=python-runtime"
+    "electron:build:win": "npm run generate-icons && vite build && electron-builder --win"
   },
   "dependencies": {
     "electron-store": "^8.1.0",
@@ -90,15 +88,6 @@
       "target": [
         "nsis",
         "portable"
-      ],
-      "extraResources": [
-        {
-          "from": "python-bundle-win/python",
-          "to": "python-runtime",
-          "filter": [
-            "**/*"
-          ]
-        }
       ]
     },
     "linux": {
