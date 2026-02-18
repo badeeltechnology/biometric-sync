@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "postinstall": "node scripts/generate-icons.js",
+    "postinstall": "node scripts/generate-icons.js || echo 'Icon generation skipped'",
     "generate-icons": "node scripts/generate-icons.js",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run generate-icons && vite build && electron-builder",
