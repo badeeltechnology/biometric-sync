@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+python/__pycache__/
+python/*.pyc
+python/venv/
+python/.venv/
+
+# Build outputs
+dist/
+dist-electron/
+build/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.sqlite
+*.db
+
+# Python
+*.pyc
+__pycache__/
+.Python
+*.pyo
+*.pyd
+
+# Electron
+.electron/
+
+# Test
+coverage/
+.nyc_output/
