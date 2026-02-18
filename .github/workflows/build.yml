@@ -68,7 +68,6 @@ jobs:
           name: windows-build
           path: |
             dist-electron/*.exe
-            dist-electron/*.msi
 
       - name: Upload macOS artifacts
         if: matrix.platform == 'mac'
